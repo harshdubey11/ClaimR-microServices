@@ -1,0 +1,116 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: finguard
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    networks:
+      - finguard-network
+
+  auth-service:
+    build:
+      context: ./authService
+
+    container_name: auth-service
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
+
+    ports:
+      - "9002:9002"
+
+    networks:
+      - finguard-network
+
+  expense-service:
+    build:
+      context: ./expenseService
+
+    container_name: expense-service
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+      - auth-service
+
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL}
+      APPROVAL_SERVICE_URL: ${APPROVAL_SERVICE_URL}
+
+    ports:
+      - "9000:9000"
+
+    networks:
+      - finguard-network
+
+  approval-service:
+    build:
+      context: ./approvalService
+
+    container_name: approval-service
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+      - expense-service
+
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      EXPENSE_SERVICE_URL: ${EXPENSE_SERVICE_URL}
+      AUTH_SERVICE_URL: http://auth-service:9002
+
+    ports:
+      - "9001:9001"
+
+    networks:
+      - finguard-network
+
+  api-gateway:
+    build:
+      context: ./gateway
+
+    container_name: api-gateway
+    restart: unless-stopped
+
+    depends_on:
+      - auth-service
+      - expense-service
+      - approval-service
+
+    ports:
+      - "8080:8080"
+
+    networks:
+      - finguard-network
+
+networks:
+  finguard-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
