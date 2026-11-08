@@ -7,6 +7,8 @@ import org.example.client.AuthClient;
 import org.example.dto.BaseResponse;
 import org.example.dto.requestDTO.UpdateExpenseRequest;
 import org.example.dto.requestDTO.ValidateTokenRequest;
+import org.example.dto.responseDTO.ExpenseResponse;
+import org.example.dto.responseDTO.UserDetailsResponseDTO;
 import org.example.dto.responseDTO.ValidateTokenResponse;
 import org.example.entity.Expense;
 import org.example.enums.ExpenseStatus;
@@ -34,6 +36,32 @@ public class ExpenseService {
     private final ApprovalClient approvalClient;
     private final AuthClient authClient;
     private static final Logger log = LoggerFactory.getLogger(ExpenseService.class);
+
+    private String getEmployeeEmail(UUID employeeId) {
+
+        BaseResponse<UserDetailsResponseDTO> response = authClient.getUserById(employeeId);
+
+        if (response == null || response.getData() == null) {
+            throw new RuntimeException("Unable to retrieve employee details");
+        }
+
+        return response.getData().getEmail();
+    }
+
+    public ExpenseResponse toExpenseResponse(Expense expense) {
+
+        String employeeEmail = getEmployeeEmail(expense.getUserId());
+
+        return new ExpenseResponse(
+                expense.getId(),
+                expense.getStatus(),
+                expense.getAmount(),
+                expense.getDepartmentId(),
+                expense.getCategory(),
+                expense.getDescription(),
+                expense.getUserId(),
+                employeeEmail);
+    }
 
     public ExpenseService(ExpenseRepository expenseRepository,
             ApprovalClient approvalClient,

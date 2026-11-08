@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.example.enums.ApprovalLevel;
 import org.example.enums.ApprovalStatus;
 import org.example.enums.ExpenseStatus;
-
+import org.example.event.ApprovalStatusChangedEvent;
 import org.example.exception.InvalidApprovalException;
 import org.example.repository.ApprovalRepository;
 
@@ -33,14 +33,34 @@ public class ApprovalService {
     private final ApprovalRepository approvalRepository;
     private final ExpenseClient expenseClient;
     private final AuthClient authClient;
+    private final ApprovalEventProducer approvalEventProducer;
     private static final Logger log = LoggerFactory.getLogger(ApprovalService.class);
 
     public ApprovalService(ApprovalRepository approvalRepository,
             ExpenseClient expenseClient,
-            AuthClient authClient) {
+            AuthClient authClient,
+            ApprovalEventProducer approvalEventProducer) {
         this.approvalRepository = approvalRepository;
         this.expenseClient = expenseClient;
         this.authClient = authClient;
+        this.approvalEventProducer = approvalEventProducer;
+    }
+
+    private void publishApprovalEvent(
+            ExpenseResponse expense,
+            Approval approval,
+            ExpenseStatus newStatus) {
+
+        ApprovalStatusChangedEvent event = new ApprovalStatusChangedEvent(
+                expense.getId(),
+                expense.getEmployeeId(),
+                expense.getEmployeeEmail(),
+                newStatus.name(),
+                approval.getLevel().name(),
+                null,
+                approval.getActionTime());
+
+        approvalEventProducer.publish(event);
     }
 
     private ValidateTokenResponse validateUser(String token) {
@@ -162,6 +182,9 @@ public class ApprovalService {
                 new ExpenseStatusUpdateRequest(ExpenseStatus.MANAGER_APPROVED));
 
         approvalRepository.save(financeApproval);
+
+        publishApprovalEvent(
+                expense, approval, ExpenseStatus.MANAGER_APPROVED);
         return new ApprovalResult(
                 approval,
                 ExpenseStatus.MANAGER_APPROVED);
@@ -190,6 +213,9 @@ public class ApprovalService {
                 new ExpenseStatusUpdateRequest(ExpenseStatus.REJECTED));
 
         approvalRepository.save(approval);
+
+        publishApprovalEvent(
+                expense, approval, ExpenseStatus.REJECTED);
         return new ApprovalResult(
                 approval,
                 ExpenseStatus.REJECTED);
@@ -216,7 +242,11 @@ public class ApprovalService {
         approval.setActionTime(LocalDateTime.now());
         expenseClient.updateExpenseStatus(expenseId,
                 new ExpenseStatusUpdateRequest(ExpenseStatus.FINANCE_APPROVED));
+
         approvalRepository.save(approval);
+
+        publishApprovalEvent(
+                expense, approval, ExpenseStatus.FINANCE_APPROVED);
         return new ApprovalResult(
                 approval,
                 ExpenseStatus.FINANCE_APPROVED);
@@ -240,49 +270,52 @@ public class ApprovalService {
         approval.setActionTime(LocalDateTime.now());
         expenseClient.updateExpenseStatus(expenseId,
                 new ExpenseStatusUpdateRequest(ExpenseStatus.REJECTED));
+
         approvalRepository.save(approval);
+
+        publishApprovalEvent(
+                expense, approval, ExpenseStatus.REJECTED);
         return new ApprovalResult(
                 approval,
                 ExpenseStatus.REJECTED);
     }
 
+    public List<ApprovalResult> getApprovals(String token) {
 
-  public List<ApprovalResult> getApprovals(String token) {
+        ValidateTokenResponse user = validateUser(token);
 
-    ValidateTokenResponse user = validateUser(token);
+        List<Approval> approvals;
 
-    List<Approval> approvals;
+        if ("MANAGER".equals(user.getRole())) {
 
-    if ("MANAGER".equals(user.getRole())) {
+            approvals = approvalRepository.findAllByLevel(ApprovalLevel.MANAGER);
 
-        approvals = approvalRepository.findAllByLevel(ApprovalLevel.MANAGER);
+        } else if ("FINANCE".equals(user.getRole())) {
 
-    } else if ("FINANCE".equals(user.getRole())) {
+            approvals = approvalRepository.findAllByLevel(ApprovalLevel.FINANCE);
 
-        approvals = approvalRepository.findAllByLevel(ApprovalLevel.FINANCE);
+        } else {
 
-    } else {
+            throw new InvalidApprovalException(
+                    "Only MANAGER and FINANCE can view approvals.");
+        }
 
-        throw new InvalidApprovalException(
-                "Only MANAGER and FINANCE can view approvals.");
+        if (approvals.isEmpty()) {
+            throw new InvalidApprovalException("No approvals found.");
+        }
+
+        return approvals.stream()
+                .map(approval -> {
+
+                    ExpenseStatus expenseStatus = expenseClient
+                            .getExpense(approval.getExpenseId())
+                            .getStatus();
+
+                    return new ApprovalResult(
+                            approval,
+                            expenseStatus);
+                })
+                .toList();
     }
-
-    if (approvals.isEmpty()) {
-        throw new InvalidApprovalException("No approvals found.");
-    }
-
-    return approvals.stream()
-            .map(approval -> {
-
-                ExpenseStatus expenseStatus = expenseClient
-                        .getExpense(approval.getExpenseId())
-                        .getStatus();
-
-                return new ApprovalResult(
-                        approval,
-                        expenseStatus);
-            })
-            .toList();
-}
 
 }

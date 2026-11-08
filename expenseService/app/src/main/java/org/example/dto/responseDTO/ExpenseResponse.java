@@ -19,4 +19,6 @@ public class ExpenseResponse {
     private UUID departmentId;
     private String category;
     private String description;
+    private UUID employeeId;
+    private String employeeEmail;
 }
